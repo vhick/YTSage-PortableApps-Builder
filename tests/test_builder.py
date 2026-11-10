@@ -1,5 +1,7 @@
 """Offline, controlled static fixtures. Synthetic PE headers are NOT working apps."""
 import hashlib
+import os
+import subprocess
 import json
 from pathlib import Path
 import struct
@@ -43,6 +45,35 @@ def fixture(root):
     (root/'Other/Source/BUILD-IDENTITY.json').write_text(json.dumps(identity),encoding='utf-8')
 
 class OfflineTests(unittest.TestCase):
+    def test_batch_msvc_command_not_split_by_powershell(self):
+        # b1r1 broke because the PowerShell @() list split a quoted path into
+        # three batch commands: '"', 'C:\Program', and '" -arch=...'.
+        scripts=Path(__file__).resolve().parent.parent/'scripts'
+        ps=(scripts/'build_launcher.ps1').read_text(encoding='utf-8')
+        cmd=(scripts/'msvc_env.cmd').read_text(encoding='ascii')
+        build=(scripts/'launcher-build.cmd').read_text(encoding='ascii')
+        self.assertNotIn("'call \"' + $devcmd",ps)
+        self.assertIn('$env:YTS_DEV_CMD = $devcmd',ps)
+        self.assertIn('call "%YTS_DEV_CMD%" -arch=amd64 -host_arch=amd64 >nul',cmd)
+        self.assertIn('call "%~dp0msvc_env.cmd"',build)
+        self.assertIn('rc.exe /nologo /fo"%YTS_RESOURCE%"',build)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD requires Windows runner')
+    def test_real_cmd_vscmd_spaced_path_and_missing_path(self):
+        # Exercise the REAL production msvc_env.cmd against a harmless fake
+        # VsDevCmd.bat, deliberately located under a directory with spaces.
+        script=Path(__file__).resolve().parent.parent/'scripts/msvc_env.cmd'
+        with tempfile.TemporaryDirectory(prefix='YTSage VS Cmd ') as d:
+            fake=Path(d)/'Program Files'/ 'Microsoft Visual Studio' / 'Common7' / 'Tools' / 'VsDevCmd.bat'
+            fake.parent.mkdir(parents=True,exist_ok=True)
+            fake.write_bytes(b'@echo off\r\nif not "%~1"=="-arch=amd64" exit /b 71\r\nif not "%~2"=="-host_arch=amd64" exit /b 72\r\nexit /b 0\r\n')
+            environment=os.environ.copy()
+            environment['YTS_DEV_CMD']=str(fake)
+            result=subprocess.run(['cmd.exe','/d','/c',f'call "{script}"'],env=environment,cwd=d,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stdout+'\n'+result.stderr)
+            environment.pop('YTS_DEV_CMD')
+            result=subprocess.run(['cmd.exe','/d','/c',f'call "{script}"'],env=environment,cwd=d,capture_output=True,text=True)
+            self.assertEqual(result.returncode,31,result.stdout+'\n'+result.stderr)
     def test_numeric_stable_selection(self):
         old=rr.api
         try:
@@ -68,7 +99,7 @@ class OfflineTests(unittest.TestCase):
             root=Path(d)/'YTSagePortable'
             fixture(root)
             validate.validate(root)
-            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r1.zip'
+            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r2.zip'
             validate.archive(root,target)
             with zipfile.ZipFile(target) as z:
                 self.assertIn('YTSagePortable/Data/Downloads/',z.namelist())

@@ -16,28 +16,23 @@ $rc = Join-Path $stage 'portable-icon.rc'
 $res = Join-Path $stage 'portable-icon.res'
 # Keep RC content ASCII and paths Unicode-safe: icon is relative to this RC file.
 [IO.File]::WriteAllText($rc, "101 ICON `"App/AppInfo/appicon.ico`"`r`n", [Text.Encoding]::ASCII)
-# Batch text contains only ASCII command syntax. Unicode project paths are
-# carried in the Windows process environment; no code-page conversion needed.
+# The command runner is a committed ASCII .cmd script rather than dynamic batch
+# text assembled from PowerShell array expressions. This avoids the b1r1 bug
+# that split the quoted VsDevCmd path into three separate batch commands.
+# Carry paths through Unicode Windows environment variables; the cmd syntax
+# itself contains no localized/non-ASCII path strings.
+$env:YTS_DEV_CMD = $devcmd
 $env:YTS_SOURCE = $src
 $env:YTS_OUTPUT = $out
 $env:YTS_RESOURCE = $res
 $env:YTS_RC = $rc
-$batch = Join-Path $env:RUNNER_TEMP 'build-ytsage-portable.bat'
-$lines = @(
-  '@echo off',
-  'call "' + $devcmd + '" -arch=amd64 -host_arch=amd64 >nul',
-  'if errorlevel 1 exit /b 11',
-  'rc.exe /nologo /fo "%YTS_RESOURCE%" "%YTS_RC%"',
-  'if errorlevel 1 exit /b 12',
-  'cl.exe /nologo /std:c++17 /EHsc /W4 /O2 /MT /DUNICODE /D_UNICODE "%YTS_SOURCE%" "%YTS_RESOURCE%" /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /OUT:"%YTS_OUTPUT%" user32.lib shell32.lib',
-  'if errorlevel 1 exit /b 13',
-  'exit /b 0'
-)
-[IO.File]::WriteAllLines($batch, $lines, [Text.Encoding]::ASCII)
+$batch = Join-Path $root 'scripts/launcher-build.cmd'
+if (-not (Test-Path -LiteralPath $batch)) { throw 'Missing reviewed launcher-build.cmd' }
 Push-Location $stage
 try {
   & $batch
-  if ($LASTEXITCODE -ne 0) { throw "MSVC launcher compilation failed: $LASTEXITCODE" }
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) { throw "MSVC launcher compilation failed: $exitCode" }
 } finally {
   Pop-Location
   Remove-Item -LiteralPath $rc,$res -ErrorAction SilentlyContinue

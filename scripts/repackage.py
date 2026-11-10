@@ -8,8 +8,8 @@ import sys
 def main():
     source=os.environ['SOURCE_RELEASE']
     revision=os.environ['NEW_REV']
-    if not re.fullmatch(r'portable-ytsage-v\d+\.\d+\.\d+-b1r1-u[0-9a-f]{8}-b[0-9a-f]{8}',source):
-        raise ValueError('Use a full original builder-managed YTSage tag, not another project/repack tag')
+    if not re.fullmatch(r'portable-ytsage-v\d+\.\d+\.\d+-b1r(?:1|2)-u[0-9a-f]{8}-b[0-9a-f]{8}',source):
+        raise ValueError('Use a full b1r1/b1r2 builder-managed YTSage tag, not another project/repack tag')
     if not re.fullmatch(r'r[2-9][0-9]*',revision):
         raise ValueError('New package revision must be r2, r3, etc.')
     action=sys.argv[1]

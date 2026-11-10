@@ -57,7 +57,7 @@ EULAVersion=1
 
 [Version]
 PackageVersion={parts[0]}.{parts[1]}.{parts[2]}.0
-DisplayVersion={version} Community b1r1
+DisplayVersion={version} Community b1r2
 
 [Control]
 Icons=1
