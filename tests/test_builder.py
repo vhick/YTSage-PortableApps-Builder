@@ -17,6 +17,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'scripts'))
 import resolve_release as rr
 import stage
 import validate
+import validate_installer as vi
 
 
 def synthetic_pe(path):
@@ -144,7 +145,7 @@ class OfflineTests(unittest.TestCase):
             root=Path(d)/'YTSagePortable'
             fixture(root)
             validate.validate(root)
-            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r4.zip'
+            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r5.zip'
             # This is a synthetic fixture, not a distributable app build.
             # Suppress the production archive log to prevent misleading CI output.
             with contextlib.redirect_stdout(io.StringIO()):
@@ -155,6 +156,78 @@ class OfflineTests(unittest.TestCase):
                 self.assertIsNone(z.testzip())
             self.assertTrue(target.with_name(target.name+'.sha256').is_file())
             with self.assertRaises(ValueError):validate.archive(root,target)
+    def test_actual_validate_cli_zip_and_inspect(self):
+        """Regression: b1r4's CLI returned zero but never created a ZIP.
+
+        Exercise the real command-line dispatch and validate the resulting
+        disk file, not merely a direct call of archive().
+        """
+        with tempfile.TemporaryDirectory(prefix='YTSage test path with spaces ') as d:
+            directory = Path(d)
+            root = directory/'YTSagePortable'
+            fixture(root)
+            archive = directory/'out'/'YTSagePortable_5.6.0_b1r5.zip'
+            script = Path(validate.__file__)
+            command = subprocess.run([sys.executable, str(script), 'zip', '--stage',
+                                      str(root), '--dest', str(archive)],
+                                     capture_output=True, text=True, timeout=30)
+            self.assertEqual(command.returncode, 0, command.stderr + command.stdout)
+            self.assertIn('INDEPENDENT VALIDATED ZIP:', command.stdout)
+            self.assertTrue(archive.is_file(), 'CLI did not create ZIP')
+            self.assertTrue(archive.with_name(archive.name + '.sha256').is_file())
+            self.assertGreater(archive.stat().st_size, 0)
+            unpack = directory/'reconstituted with spaces'
+            command = subprocess.run([sys.executable, str(script), 'inspect',
+                                      '--zip', str(archive), '--dest', str(unpack)],
+                                     capture_output=True, text=True, timeout=30)
+            self.assertEqual(command.returncode, 0, command.stderr + command.stdout)
+            self.assertIn('Previously validated ZIP re-inspected:', command.stdout)
+            self.assertTrue((unpack/'YTSagePortable'/'YTSagePortable.exe').is_file())
+            self.assertTrue((unpack/'YTSagePortable'/'Data'/'Downloads').is_dir())
+
+    def test_nsis_payload_paths_relative_to_staging_not_installdir(self):
+        """Regression: NSIS installs a staged subtree, NOT the final folder."""
+        for prefix in ('', 'YTSagePortable/', '.__UPB_Stage/',
+                       '$INSTDIR\\.__UPB_Stage\\'):
+            paths = '\n'.join('Path = ' + prefix + suffix.replace('/', '\\')
+                              for suffix in vi.REQUIRED)
+            listing = 'Path = installer.paf.exe\nType = Nsis\n\n' + paths
+            self.assertEqual(vi.validate_listing(listing),
+                             prefix.replace('\\', '/').rstrip('/').casefold())
+
+    def test_nsis_payload_validation_fail_closed(self):
+        source = 'Path = installer.paf.exe\nType = Nsis\n\n'
+        listing = source + '\n'.join('Path = .__UPB_Stage/' + p
+                                    for p in vi.REQUIRED)
+        self.assertEqual(vi.validate_listing(listing), '.__upb_stage')
+        bad_missing = listing.replace('Path = .__UPB_Stage/App/YTSage/ffprobe.exe', '')
+        with self.assertRaises(ValueError):
+            vi.validate_listing(bad_missing)
+        with self.assertRaises(ValueError):
+            vi.validate_listing(listing.replace('Type = Nsis', 'Type = zip'))
+        # Same paths split across different payload roots must be rejected.
+        mismatched = listing.replace('Path = .__UPB_Stage/App/YTSage/ffmpeg.exe',
+                                     'Path = OtherApp/App/YTSage/ffmpeg.exe')
+        with self.assertRaises(ValueError):
+            vi.validate_listing(mismatched)
+
+    def test_installer_only_accepts_new_managed_builder_revision(self):
+        """Regression: b1r4 repackage regex excluded its own release tag."""
+        script = Path(__file__).resolve().parent.parent/'scripts'/'repackage.py'
+        with tempfile.TemporaryDirectory() as d:
+            outputs = Path(d)/'output.txt'
+            env = dict(os.environ,
+                       SOURCE_RELEASE='portable-ytsage-v5.6.5-b1r5-u2c564ac5-b1863ed42',
+                       NEW_REV='r2', GITHUB_SHA='a'*40, GITHUB_OUTPUT=str(outputs))
+            result = subprocess.run([sys.executable, str(script), 'tag'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('-installer-r2-baaaaaaaa', outputs.read_text())
+            env['SOURCE_RELEASE'] = 'portable-unrelated-v5.6.5-b1r5-u2c564ac5-b1863ed42'
+            bad = subprocess.run([sys.executable, str(script), 'tag'],
+                                 env=env, capture_output=True, text=True)
+            self.assertNotEqual(bad.returncode, 0)
+
     def test_rejects_modified_app_executable(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'YTSagePortable';fixture(root)

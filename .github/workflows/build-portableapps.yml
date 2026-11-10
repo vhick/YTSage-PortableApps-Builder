@@ -89,9 +89,12 @@ jobs:
         run: |
           python scripts/validate.py stage
           if ($LASTEXITCODE -ne 0) { throw 'Stage static validation failed' }
-          $filename = "work/out/YTSagePortable_$env:YTSAGE_VERSION`_b1r4.zip"
+          $filename = "work/out/YTSagePortable_${env:YTSAGE_VERSION}_b1r5.zip"
           python scripts/validate.py zip --dest "$filename"
           if ($LASTEXITCODE -ne 0) { throw 'Independent ZIP verification failed' }
+          if (-not (Test-Path -LiteralPath $filename -PathType Leaf)) { throw 'Verified ZIP missing after archive command' }
+          if (-not (Test-Path -LiteralPath "$filename.sha256" -PathType Leaf)) { throw 'Verified ZIP checksum manifest missing' }
+          if ((Get-Item -LiteralPath $filename).Length -lt 1000000) { throw 'PortableApps ZIP unexpectedly small' }
       - name: Generate installer via pinned shared Portable Package Builder
         if: steps.existing.outputs.exists != 'true'
         id: installer
@@ -116,7 +119,7 @@ jobs:
         with:
           files: work/out/*.zip;work/installer/*.paf.exe
           tag: ${{ steps.resolve.outputs.tag }}
-          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r4
+          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r5
           tag-prefix: portable-ytsage-
           keep-releases: '3'
           prune: 'false'
@@ -127,7 +130,7 @@ jobs:
         with:
           files: work/out/*.zip;work/installer/*.paf.exe
           tag: ${{ steps.resolve.outputs.tag }}
-          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r4
+          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r5
           tag-prefix: portable-ytsage-
           keep-releases: '3'
           prune: 'false'
@@ -138,5 +141,5 @@ jobs:
         with:
           name: YTSage-validated-ZIP-failure-recovery
           path: work/out/*.zip
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 3

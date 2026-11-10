@@ -93,8 +93,18 @@ def inspect(zip_path,dest):
 if __name__=='__main__':
     a=argparse.ArgumentParser();a.add_argument('mode',choices=['stage','zip','inspect']);a.add_argument('--stage',default='work/stage/YTSagePortable');a.add_argument('--dest');a.add_argument('--zip')
     x=a.parse_args()
-    if x.mode=='stage':validate(Path(x.stage));print('VALIDATED staging',x.stage)
-    if x.mode=='zip':
-        if not x.dest:raise ValueError('Missing --dest');archive(x.stage,x.dest)
-    if x.mode=='inspect':
-        if not x.dest or not x.zip:raise ValueError('Missing --dest/--zip');inspect(Path(x.zip),Path(x.dest))
+    # The command body must not share the one-line `if not x.dest` suite.
+    # b1r4 silently skipped archive/inspect when their required inputs WERE present.
+    if x.mode == 'stage':
+        validate(Path(x.stage))
+        print('VALIDATED staging', x.stage)
+    elif x.mode == 'zip':
+        if not x.dest:
+            raise ValueError('Missing --dest')
+        archive(x.stage, x.dest)
+        if not Path(x.dest).is_file():
+            raise RuntimeError('ZIP command returned without creating archive')
+    elif x.mode == 'inspect':
+        if not x.dest or not x.zip:
+            raise ValueError('Missing --dest/--zip')
+        inspect(Path(x.zip), Path(x.dest))

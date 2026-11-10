@@ -103,7 +103,7 @@ def resolve(version):
     return dict(tag=tag, version=version_str, upstream_commit=commit,
                 upstream_asset=name, upstream_asset_url=url,
                 upstream_asset_sha256=digest.lower(), upstream_asset_size=asset['size'],
-                upstream_release_id=release['id'], builder_revision='b1r4',
+                upstream_release_id=release['id'], builder_revision='b1r5',
                 packaging_revision='r1', source='official-developer-ffmpeg-portable-zip')
 
 def main():
@@ -118,7 +118,7 @@ def main():
         raise ValueError('Expected a real builder GITHUB_SHA commit')
     short_builder = builder_sha[:8].lower()
     short_upstream = result['upstream_commit'][:8]
-    tag = f'portable-ytsage-v{package_version}-b1r4-u{short_upstream}-b{short_builder}'
+    tag = f'portable-ytsage-v{package_version}-b1r5-u{short_upstream}-b{short_builder}'
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8', newline='\n') as out:
         for key, value in (('tag', tag), ('upstream_tag', result['tag']),
                            ('upstream_sha', result['upstream_commit']), ('version', package_version)):

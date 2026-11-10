@@ -1,4 +1,4 @@
-Builder kit b1r4 local verification evidence (2026-11-10)
+Builder kit b1r5 verification evidence (2026-11-10)
 ========================================================
 SOURCE-INSPECTED:  v5.6.0 Python/PySide6 source, constants, FFmpeg code,
                    official Windows cx_Freeze release workflow, license;
@@ -57,3 +57,32 @@ suppressed to avoid suggesting that a production app ZIP was created.
 
 ### b1r4 verification note
 The b1r3 GitHub Actions run failed in `test_real_cmd_vscmd_spaced_path_and_missing_path` (fake developer environment returned 11). b1r4 replaces the mock-positive assertion with a Windows-hosted real Visual Studio toolchain test and improves diagnostic output. This change is not yet confirmed by Windows execution.
+
+
+2026-11-10: b1r4 user GitHub Actions log logs_115903436647.zip
+==========================================================
+WINDOWS-COMPILED (b1r4): Seven actual Windows regression tests passed; Microsoft
+                             Visual Studio 2026 MSVC launcher compiled correctly.
+WINDOWS-CI-OBSERVED: Official v5.6.5 SHA-256 verified, tagged source checkout,
+                     staging, and shared NSIS installer compilation succeeded.
+FAILED/BLOCKED (b1r4): Independent installer validation erroneously expected
+                        YTSagePortable/ archive folder; the shared NSIS builder
+                        embeds .__UPB_Stage instead.
+FAILED/BLOCKED (b1r4): The `validate.py zip` CLI did not run archive() with a
+                        valid --dest due to a Python semicolon/if suite bug.
+                        No work/out/*.zip was available for recovery or release.
+STATIC-VALIDATED (b1r5): ZIP and inspect CLI paths corrected; end-to-end
+                         synthetic fixtures added to validate disk outputs,
+                         checksums, and reinspection. NSIS listing parser
+                         verifies coherent launcher/App/Other payload paths.
+NOT YET VERIFIED (b1r5): Windows hosted workflow, actual YTSage launch,
+                          installed-app coexistence, installed NSIS execution,
+                          Data preservation, publisher upload.
+
+LOCAL b1r5 RESULTS (2026-11-10): 10 cross-platform regression tests PASSED;
+                                Windows-only real MSVC regression SKIPPED
+                                outside a Windows runner. Both workflows
+                                parsed as YAML and all Python files compiled.
+                                Real command-line ZIP and inspect operations
+                                created and reverified a controlled test ZIP.
+                                No released Windows application is claimed.
