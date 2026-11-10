@@ -1,6 +1,9 @@
 """Offline, controlled static fixtures. Synthetic PE headers are NOT working apps."""
 import hashlib
+import contextlib
+import io
 import os
+import shutil
 import subprocess
 import json
 from pathlib import Path
@@ -57,23 +60,49 @@ class OfflineTests(unittest.TestCase):
         self.assertIn('call "%YTS_DEV_CMD%" -arch=amd64 -host_arch=amd64 >nul',cmd)
         self.assertIn('call "%~dp0msvc_env.cmd"',build)
         self.assertIn('rc.exe /nologo /fo"%YTS_RESOURCE%"',build)
+        self.assertIn('subprocess.run([str(script)]',Path(__file__).read_text(encoding='utf-8'))
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD requires Windows runner')
     def test_real_cmd_vscmd_spaced_path_and_missing_path(self):
-        # Exercise the REAL production msvc_env.cmd against a harmless fake
-        # VsDevCmd.bat, deliberately located under a directory with spaces.
-        script=Path(__file__).resolve().parent.parent/'scripts/msvc_env.cmd'
+        # b1r3 regression: b1r2 explicitly ran cmd.exe /c with an extra
+        # quoted CALL command. Python's Windows argv conversion caused CMD
+        # to treat the quote-wrapped path as a literal invalid command.
+        # Python supports invoking .cmd files directly with shell=False.
+        # This tests the real committed script rather than a mock implementation.
+        original=Path(__file__).resolve().parent.parent/'scripts/msvc_env.cmd'
         with tempfile.TemporaryDirectory(prefix='YTSage VS Cmd ') as d:
-            fake=Path(d)/'Program Files'/ 'Microsoft Visual Studio' / 'Common7' / 'Tools' / 'VsDevCmd.bat'
+            # Copy the *real* script into a path with spaces, exercising both
+            # the invoked script path and the fake developer command path.
+            script=Path(d)/'Builder Kit With Spaces'/'msvc_env.cmd'
+            script.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(original,script)
+            fake=Path(d)/'Program Files'/'Microsoft Visual Studio'/'Common7'/'Tools'/'VsDevCmd.bat'
             fake.parent.mkdir(parents=True,exist_ok=True)
             fake.write_bytes(b'@echo off\r\nif not "%~1"=="-arch=amd64" exit /b 71\r\nif not "%~2"=="-host_arch=amd64" exit /b 72\r\nexit /b 0\r\n')
             environment=os.environ.copy()
             environment['YTS_DEV_CMD']=str(fake)
-            result=subprocess.run(['cmd.exe','/d','/c',f'call "{script}"'],env=environment,cwd=d,capture_output=True,text=True)
+            # Do not wrap a quoted CALL in a second cmd.exe /c invocation.
+            # No command-line arguments are user-controlled in this fixture.
+            result=subprocess.run([str(script)],env=environment,cwd=d,
+                                  capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+'\n'+result.stderr)
+            # Actual build_launcher.ps1 starts the .cmd file with the PowerShell
+            # call operator. Verify that form as well on hosted Windows runners.
+            environment['YTS_TEST_SCRIPT']=str(script)
+            powershell=subprocess.run(['pwsh','-NoProfile','-NonInteractive','-Command',
+                                      '& $env:YTS_TEST_SCRIPT; exit $LASTEXITCODE'],
+                                     env=environment,cwd=d,capture_output=True,text=True,timeout=20)
+            self.assertEqual(powershell.returncode,0,powershell.stdout+'\n'+powershell.stderr)
+            # An absent dev command and a stale path must fail independently.
             environment.pop('YTS_DEV_CMD')
-            result=subprocess.run(['cmd.exe','/d','/c',f'call "{script}"'],env=environment,cwd=d,capture_output=True,text=True)
-            self.assertEqual(result.returncode,31,result.stdout+'\n'+result.stderr)
+            missing=subprocess.run([str(script)],env=environment,cwd=d,
+                                   capture_output=True,text=True,timeout=20)
+            self.assertEqual(missing.returncode,31,missing.stdout+'\n'+missing.stderr)
+            environment['YTS_DEV_CMD']=str(Path(d)/'missing'/'VsDevCmd.bat')
+            stale=subprocess.run([str(script)],env=environment,cwd=d,
+                                 capture_output=True,text=True,timeout=20)
+            self.assertEqual(stale.returncode,32,stale.stdout+'\n'+stale.stderr)
+
     def test_numeric_stable_selection(self):
         old=rr.api
         try:
@@ -99,8 +128,11 @@ class OfflineTests(unittest.TestCase):
             root=Path(d)/'YTSagePortable'
             fixture(root)
             validate.validate(root)
-            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r2.zip'
-            validate.archive(root,target)
+            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r3.zip'
+            # This is a synthetic fixture, not a distributable app build.
+            # Suppress the production archive log to prevent misleading CI output.
+            with contextlib.redirect_stdout(io.StringIO()):
+                validate.archive(root,target)
             with zipfile.ZipFile(target) as z:
                 self.assertIn('YTSagePortable/Data/Downloads/',z.namelist())
                 self.assertIn('YTSagePortable/Data/TraceGuard/',z.namelist())

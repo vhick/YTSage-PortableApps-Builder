@@ -1,4 +1,4 @@
-Builder kit b1r2 local verification evidence (2026-11-10)
+Builder kit b1r3 local verification evidence (2026-11-10)
 ========================================================
 SOURCE-INSPECTED:  v5.6.0 Python/PySide6 source, constants, FFmpeg code,
                    official Windows cx_Freeze release workflow, license;
@@ -32,6 +32,24 @@ WINDOWS-CI-OBSERVED:  release selection, checked-out source, hash-verified
                       succeeded before launcher build.
 FAILED/BLOCKED:       b1r1 Step 11 batch quoting split VsDevCmd path;
                       developer environment command failed with code 11.
-STATIC-VALIDATED:     b1r2 correction avoids dynamic batch command assembly.
-NOT YET VERIFIED:     b1r2 actual Windows command preflight and MSVC compile
+STATIC-VALIDATED:     b1r2 correction avoided dynamic batch assembly,
+                      but the b1r2 Windows test had the invocation defect.
+NOT YET VERIFIED:     b1r3 actual Windows command preflight and MSVC compile
                       until GitHub Actions executes the new regression test.
+
+GITHUB-ACTIONS-OBSERVED (b1r2, user log 115894793986):
+WINDOWS-CI-OBSERVED:  6/7 tests passed. New Windows-only regression failed
+                      at tests/test_builder.py line 73 before upstream build.
+FAILED/BLOCKED:       b1r2 test incorrectly passed a quoted CALL command
+                      via cmd.exe /c. Windows rejected the quote-wrapped script.
+STATIC-VALIDATED:     b1r3 test now launches the real .cmd directly through
+                      Python's Windows subprocess mechanism and also tests
+                      the production PowerShell call-operator invocation.
+NOT YET VERIFIED:     b1r3 actual Windows test and compiled launcher; hosted
+                      Windows run is required before claiming those pass.
+NOTE:                 The b1r2 log's synthetic "INDEPENDENT VALIDATED ZIP"
+                      was a temporary unit-test fixture, NOT an application
+                      release ZIP or evidence of packaging success.
+
+STATIC-VALIDATED (b1r3): Synthetic unit fixture archive print is now
+suppressed to avoid suggesting that a production app ZIP was created.
