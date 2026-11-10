@@ -1,0 +1,7 @@
+work/
+__pycache__/
+*.pyc
+.vs/
+*.obj
+*.res
+*.pdb

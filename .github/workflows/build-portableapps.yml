@@ -1,0 +1,142 @@
+name: YTSage - Build PortableApps ZIP and Installer
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: 'latest stable or exact stable release, e.g. v5.6.0 (beta/RC rejected)'
+        required: true
+        default: latest
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: ytsage-portableapps-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Official source-linked PortableApps build
+    runs-on: windows-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPSTREAM_VERSION: ${{ inputs.upstream_version }}
+    steps:
+      - name: Checkout separate builder repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.13'
+      - name: Run builder regression tests (offline, no fake apps published)
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Builder regression tests failed' }
+      - name: Resolve strict upstream stable release and developer SHA256
+        id: resolve
+        run: |
+          python scripts/resolve_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Stable resolution failed' }
+      - name: Skip already published identical builder revision
+        id: existing
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          python scripts/existing_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Existing-release ownership lookup failed' }
+      - name: Download and verify official upstream FFmpeg portable ZIP
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          python scripts/verify_download.py
+          if ($LASTEXITCODE -ne 0) { throw 'Official asset download failed SHA/size validation' }
+      - name: Obtain matching upstream tagged source for audit, LICENSE and original icon
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          PINNED_TAG: ${{ steps.resolve.outputs.upstream_tag }}
+          PINNED_SHA: ${{ steps.resolve.outputs.upstream_sha }}
+        run: |
+          git clone -c core.longpaths=true --depth 1 --branch "$env:PINNED_TAG" https://github.com/oop7/YTSage.git work/upstream_source
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream git checkout failed' }
+          $actual = (git -C work/upstream_source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:PINNED_SHA) { throw 'Upstream tag SHA verification failed' }
+      - name: Confirm upstream source portability invariants did not change
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          python scripts/audit_guard.py
+          if ($LASTEXITCODE -ne 0) { throw 'New YTSage release changed audited portability assumptions' }
+      - name: Generate authentic app metadata and stage complete application
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          python -m pip install --disable-pip-version-check 'Pillow==12.0.0'
+          if ($LASTEXITCODE -ne 0) { throw 'Icon processing dependency setup failed' }
+          python scripts/stage.py
+          if ($LASTEXITCODE -ne 0) { throw 'YTSage staging failed' }
+      - name: Compile native Windows PE root launcher from reviewed C++17 source
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          ./scripts/build_launcher.ps1 -Stage 'work/stage/YTSagePortable'
+          if (-not (Test-Path 'work/stage/YTSagePortable/YTSagePortable.exe')) { throw 'Launcher did not compile' }
+      - name: Validate full stage; create and independently verify ZIP
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          YTSAGE_VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          python scripts/validate.py stage
+          if ($LASTEXITCODE -ne 0) { throw 'Stage static validation failed' }
+          $filename = "work/out/YTSagePortable_$env:YTSAGE_VERSION`_b1r1.zip"
+          python scripts/validate.py zip --dest "$filename"
+          if ($LASTEXITCODE -ne 0) { throw 'Independent ZIP verification failed' }
+      - name: Generate installer via pinned shared Portable Package Builder
+        if: steps.existing.outputs.exists != 'true'
+        id: installer
+        uses: vhick/Portable-Package-Builder@v1.0.0
+        with:
+          source-dir: work/stage/YTSagePortable
+          output-dir: work/installer
+          engine: custom-nsis
+          running-exe: YTSagePortable.exe
+          timeout-seconds: '900'
+          package-revision: r1
+      - name: Independently verify shared installer output
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          INSTALLER_FILE: ${{ steps.installer.outputs.installer-file }}
+          INSTALLER_SHA: ${{ steps.installer.outputs.installer-sha256 }}
+        run: |
+          ./scripts/validate_installer.ps1 -Path $env:INSTALLER_FILE -Sha256 $env:INSTALLER_SHA
+      - name: Preview release and checksums using pinned shared publisher
+        if: steps.existing.outputs.exists != 'true'
+        uses: vhick/portable-release-publisher@v1.1.1
+        with:
+          files: work/out/*.zip;work/installer/*.paf.exe
+          tag: ${{ steps.resolve.outputs.tag }}
+          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r1
+          tag-prefix: portable-ytsage-
+          keep-releases: '3'
+          prune: 'false'
+          dry-run: 'true'
+      - name: Publish validated ZIP, installer and generated SHA256SUMS.txt
+        if: steps.existing.outputs.exists != 'true'
+        uses: vhick/portable-release-publisher@v1.1.1
+        with:
+          files: work/out/*.zip;work/installer/*.paf.exe
+          tag: ${{ steps.resolve.outputs.tag }}
+          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r1
+          tag-prefix: portable-ytsage-
+          keep-releases: '3'
+          prune: 'false'
+          dry-run: 'false'
+      - name: Preserve independently validated ZIP when installer or publication fails
+        if: ${{ failure() && steps.existing.outputs.exists != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: YTSage-validated-ZIP-failure-recovery
+          path: work/out/*.zip
+          if-no-files-found: ignore
+          retention-days: 3
