@@ -57,43 +57,59 @@ class OfflineTests(unittest.TestCase):
         build=(scripts/'launcher-build.cmd').read_text(encoding='ascii')
         self.assertNotIn("'call \"' + $devcmd",ps)
         self.assertIn('$env:YTS_DEV_CMD = $devcmd',ps)
-        self.assertIn('call "%YTS_DEV_CMD%" -arch=amd64 -host_arch=amd64 >nul',cmd)
+        self.assertIn('call "%YTS_DEV_CMD%" -arch=amd64 -host_arch=amd64',cmd)
         self.assertIn('call "%~dp0msvc_env.cmd"',build)
         self.assertIn('rc.exe /nologo /fo"%YTS_RESOURCE%"',build)
         self.assertIn('subprocess.run([str(script)]',Path(__file__).read_text(encoding='utf-8'))
 
-    @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD requires Windows runner')
+    @unittest.skipUnless(sys.platform == 'win32', 'Real MSVC test requires a Windows runner')
     def test_real_cmd_vscmd_spaced_path_and_missing_path(self):
-        # b1r3 regression: b1r2 explicitly ran cmd.exe /c with an extra
-        # quoted CALL command. Python's Windows argv conversion caused CMD
-        # to treat the quote-wrapped path as a literal invalid command.
-        # Python supports invoking .cmd files directly with shell=False.
-        # This tests the real committed script rather than a mock implementation.
-        original=Path(__file__).resolve().parent.parent/'scripts/msvc_env.cmd'
+        # b1r3's synthetic VsDevCmd stub failed with exit 11, but the test
+        # suppressed the command's diagnostics. Do not mistake a fake .bat
+        # for MSVC. Check the ACTUAL compiler installation used by CI.
+        scripts=Path(__file__).resolve().parent.parent/'scripts'
+        original=scripts/'msvc_env.cmd'
+        vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio'/'Installer'/'vswhere.exe'
+        self.assertTrue(vswhere.is_file(),f'vswhere.exe missing: {vswhere}')
+        found=subprocess.run([str(vswhere),'-latest','-products','*',
+                              '-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+                              '-property','installationPath'],capture_output=True,
+                             text=True,timeout=30)
+        self.assertEqual(found.returncode,0,found.stdout+'\n'+found.stderr)
+        self.assertTrue(found.stdout.strip(),'No Visual Studio instance with C++ x64 tools')
+        devcmd=Path(found.stdout.strip())/'Common7'/'Tools'/'VsDevCmd.bat'
+        self.assertTrue(devcmd.is_file(),f'VsDevCmd.bat missing: {devcmd}')
         with tempfile.TemporaryDirectory(prefix='YTSage VS Cmd ') as d:
-            # Copy the *real* script into a path with spaces, exercising both
-            # the invoked script path and the fake developer command path.
             script=Path(d)/'Builder Kit With Spaces'/'msvc_env.cmd'
             script.parent.mkdir(parents=True,exist_ok=True)
             shutil.copyfile(original,script)
-            fake=Path(d)/'Program Files'/'Microsoft Visual Studio'/'Common7'/'Tools'/'VsDevCmd.bat'
-            fake.parent.mkdir(parents=True,exist_ok=True)
-            fake.write_bytes(b'@echo off\r\nif not "%~1"=="-arch=amd64" exit /b 71\r\nif not "%~2"=="-host_arch=amd64" exit /b 72\r\nexit /b 0\r\n')
+            # This batch invokes the reviewed msvc_env.cmd just like
+            # launcher-build.cmd and verifies the compiler tools really load.
+            caller=script.parent/'verify-real-toolchain.cmd'
+            caller.write_bytes((
+                '@echo off\r\n'
+                'call "%~dp0msvc_env.cmd"\r\n'
+                'if errorlevel 1 exit /b 55\r\n'
+                'where.exe cl.exe >nul 2>nul\r\n'
+                'if errorlevel 1 exit /b 56\r\n'
+                'where.exe rc.exe >nul 2>nul\r\n'
+                'if errorlevel 1 exit /b 57\r\n'
+                'exit /b 0\r\n'
+            ).encode('ascii'))
             environment=os.environ.copy()
-            environment['YTS_DEV_CMD']=str(fake)
-            # Do not wrap a quoted CALL in a second cmd.exe /c invocation.
-            # No command-line arguments are user-controlled in this fixture.
-            result=subprocess.run([str(script)],env=environment,cwd=d,
-                                  capture_output=True,text=True,timeout=20)
-            self.assertEqual(result.returncode,0,result.stdout+'\n'+result.stderr)
-            # Actual build_launcher.ps1 starts the .cmd file with the PowerShell
-            # call operator. Verify that form as well on hosted Windows runners.
-            environment['YTS_TEST_SCRIPT']=str(script)
+            environment['YTS_DEV_CMD']=str(devcmd)
+            result=subprocess.run([str(caller)],env=environment,cwd=d,
+                                  capture_output=True,text=True,timeout=90)
+            self.assertEqual(result.returncode,0,
+                             f'Actual VS devcmd failed ({result.returncode}):\n{result.stdout}\n{result.stderr}')
+            # Confirm the PowerShell call operator used by build_launcher.ps1.
+            environment['YTS_TEST_SCRIPT']=str(caller)
             powershell=subprocess.run(['pwsh','-NoProfile','-NonInteractive','-Command',
                                       '& $env:YTS_TEST_SCRIPT; exit $LASTEXITCODE'],
-                                     env=environment,cwd=d,capture_output=True,text=True,timeout=20)
-            self.assertEqual(powershell.returncode,0,powershell.stdout+'\n'+powershell.stderr)
-            # An absent dev command and a stale path must fail independently.
+                                     env=environment,cwd=d,capture_output=True,text=True,timeout=90)
+            self.assertEqual(powershell.returncode,0,
+                             f'PowerShell launch failed:\n{powershell.stdout}\n{powershell.stderr}')
+            # Negative-path assertions retain the exact stable status codes.
             environment.pop('YTS_DEV_CMD')
             missing=subprocess.run([str(script)],env=environment,cwd=d,
                                    capture_output=True,text=True,timeout=20)
@@ -128,7 +144,7 @@ class OfflineTests(unittest.TestCase):
             root=Path(d)/'YTSagePortable'
             fixture(root)
             validate.validate(root)
-            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r3.zip'
+            target=Path(d)/'out'/'YTSagePortable_5.6.0_b1r4.zip'
             # This is a synthetic fixture, not a distributable app build.
             # Suppress the production archive log to prevent misleading CI output.
             with contextlib.redirect_stdout(io.StringIO()):

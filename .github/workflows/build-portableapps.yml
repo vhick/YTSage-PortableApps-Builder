@@ -89,7 +89,7 @@ jobs:
         run: |
           python scripts/validate.py stage
           if ($LASTEXITCODE -ne 0) { throw 'Stage static validation failed' }
-          $filename = "work/out/YTSagePortable_$env:YTSAGE_VERSION`_b1r3.zip"
+          $filename = "work/out/YTSagePortable_$env:YTSAGE_VERSION`_b1r4.zip"
           python scripts/validate.py zip --dest "$filename"
           if ($LASTEXITCODE -ne 0) { throw 'Independent ZIP verification failed' }
       - name: Generate installer via pinned shared Portable Package Builder
@@ -116,7 +116,7 @@ jobs:
         with:
           files: work/out/*.zip;work/installer/*.paf.exe
           tag: ${{ steps.resolve.outputs.tag }}
-          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r3
+          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r4
           tag-prefix: portable-ytsage-
           keep-releases: '3'
           prune: 'false'
@@ -127,7 +127,7 @@ jobs:
         with:
           files: work/out/*.zip;work/installer/*.paf.exe
           tag: ${{ steps.resolve.outputs.tag }}
-          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r3
+          release-title: YTSage ${{ steps.resolve.outputs.version }} PortableApps Community b1r4
           tag-prefix: portable-ytsage-
           keep-releases: '3'
           prune: 'false'

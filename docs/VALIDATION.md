@@ -1,4 +1,4 @@
-Builder kit b1r3 local verification evidence (2026-11-10)
+Builder kit b1r4 local verification evidence (2026-11-10)
 ========================================================
 SOURCE-INSPECTED:  v5.6.0 Python/PySide6 source, constants, FFmpeg code,
                    official Windows cx_Freeze release workflow, license;
@@ -34,7 +34,7 @@ FAILED/BLOCKED:       b1r1 Step 11 batch quoting split VsDevCmd path;
                       developer environment command failed with code 11.
 STATIC-VALIDATED:     b1r2 correction avoided dynamic batch assembly,
                       but the b1r2 Windows test had the invocation defect.
-NOT YET VERIFIED:     b1r3 actual Windows command preflight and MSVC compile
+NOT YET VERIFIED:     b1r4 actual Windows command preflight and MSVC compile
                       until GitHub Actions executes the new regression test.
 
 GITHUB-ACTIONS-OBSERVED (b1r2, user log 115894793986):
@@ -42,14 +42,18 @@ WINDOWS-CI-OBSERVED:  6/7 tests passed. New Windows-only regression failed
                       at tests/test_builder.py line 73 before upstream build.
 FAILED/BLOCKED:       b1r2 test incorrectly passed a quoted CALL command
                       via cmd.exe /c. Windows rejected the quote-wrapped script.
-STATIC-VALIDATED:     b1r3 test now launches the real .cmd directly through
-                      Python's Windows subprocess mechanism and also tests
-                      the production PowerShell call-operator invocation.
-NOT YET VERIFIED:     b1r3 actual Windows test and compiled launcher; hosted
+STATIC-VALIDATED:     b1r4 now tests actual VS2026/VS2022 developer-command
+                      initialization through vswhere on Windows, instead of
+                      relying on a fake developer environment.
+NOT YET VERIFIED:     b1r4 actual Windows test and compiled launcher; hosted
                       Windows run is required before claiming those pass.
 NOTE:                 The b1r2 log's synthetic "INDEPENDENT VALIDATED ZIP"
                       was a temporary unit-test fixture, NOT an application
                       release ZIP or evidence of packaging success.
 
-STATIC-VALIDATED (b1r3): Synthetic unit fixture archive print is now
+STATIC-VALIDATED (b1r4): Synthetic unit fixture archive print is now
 suppressed to avoid suggesting that a production app ZIP was created.
+
+
+### b1r4 verification note
+The b1r3 GitHub Actions run failed in `test_real_cmd_vscmd_spaced_path_and_missing_path` (fake developer environment returned 11). b1r4 replaces the mock-positive assertion with a Windows-hosted real Visual Studio toolchain test and improves diagnostic output. This change is not yet confirmed by Windows execution.
